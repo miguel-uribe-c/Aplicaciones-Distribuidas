@@ -1,0 +1,20 @@
+Protocolo	Puerto		Aplicación
+TCP		1433		SQL
+-		1521		ORACLE
+-		3306		MySQL/MariaDB
+-		5432		PosrgreSQL
+-		27017		MongoDB
+-		6379		Redis
+-		21		FTP
+-		22		SSH Y SFTP
+-		53		DNS
+-		80		Navegacion Web No Seguro HTTP
+-		6881 y 6969     Bit Torrent
+-		8080		Navegacion Web Puertom de Prueba
+UDP		53		DNS
+-		68		DHCP
+
+NODE.JS		3000		Para desarrollo local para producción HTTP (80) HTTPS (443)
+DJango		5000		-	-	-	-	-	-	-	-	
+REACT		3000		-	-	-	-	-	-	-	-
+ANGULAR		4200		-	-	-	-	-	-	-	-

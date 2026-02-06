@@ -1,0 +1,15 @@
+crear directorio node-prj
+mkdir primer-codigo
+cd primer-cofigo
+nom init -d
+(1.0.0)
+Primer ejemplo sonbre uso de NodeJS+Express
+(index.js)
+
+node, js, express, tcp
+Luis Miguel-Uribe
+(ISC)
+
+
+ls
+more package.json
