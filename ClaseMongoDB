@@ -1,0 +1,45 @@
+Docker es el medio mas utilizado para deploit y si queremos administrar docker podemos utilizar kubernetes
+white list listas de ip permitidas para adquirir un recurso
+Username:migemiki2_db_user
+Password:7VuCfYJQ0pKUhRbQ
+Install your driver
+npm install mongodb
+Add your connection string into your application code
+mongodb+srv://migemiki2_db_user:7VuCfYJQ0pKUhRbQ@cluster0.m6yvict.mongodb.net/?appName=Cluster0
+/************************************************************
+View full code sample
+Show Password
+
+const { MongoClient, ServerApiVersion } = require('mongodb');
+const uri = "mongodb+srv://migemiki2_db_user:7VuCfYJQ0pKUhRbQ@cluster0.m6yvict.mongodb.net/?appName=Cluster0";
+// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  }
+});
+async function run() {
+  try {
+    // Connect the client to the server	(optional starting in v4.7)
+    await client.connect();
+    // Send a ping to confirm a successful connection
+    await client.db("admin").command({ ping: 1 });
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+  } finally {
+    // Ensures that the client will close when you finish/error
+    await client.close();
+  }
+}
+run().catch(console.dir);
+
+*//////////////////////////////////////////////////////////////
+Collection es lo mismo que una tabla en no relacionales
+Registros aqui cada renglon es un documento
+En relacionales cada registro debe tener los mismos campos en no relacionales no es necesario
+Objet Relational Maping 
+hacer el npm init
+e instalar mongo db
+de ahi se ejecuta index.js usando 
+node index.js
