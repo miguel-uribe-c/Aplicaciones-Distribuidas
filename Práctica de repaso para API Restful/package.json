@@ -1,0 +1,20 @@
+{
+  "name": "practica-repaso",
+  "version": "1.0.0",
+  "description": "se implementara mas funciones utilizando api-restful",
+  "keywords": [
+    "node",
+    "javascript",
+    "api"
+  ],
+  "license": "ISC",
+  "author": "uribe cortes luis miguel",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
