@@ -1,4 +1,4 @@
-crear directorio node-prj
+crear directorio node-prj OJO!!!!! el directorio no debe tener acentos no permite node crear el package
 mkdir primer-codigo
 cd primer-cofigo
 npm init -d ->esto nos creara los archivos package.json index.js
