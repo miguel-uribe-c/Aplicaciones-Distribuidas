@@ -1,8 +1,10 @@
 crear directorio node-prj
 mkdir primer-codigo
 cd primer-cofigo
-nom init -d
+npm init -d ->esto nos creara los archivos package.json index.js
 (1.0.0)
+npm install express ->aqui instalamos express se utiliza para cada proyecto nuevo con node
+
 Primer ejemplo sonbre uso de NodeJS+Express
 (index.js)
 
