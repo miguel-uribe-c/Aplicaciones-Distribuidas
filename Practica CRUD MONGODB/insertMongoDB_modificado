@@ -1,0 +1,276 @@
+/**
+ * @fileoverview API RESTful con Express y MongoDB
+ * 
+ * Servidor de ejemplo que demuestra distintos tipos de endpoints REST:
+ * - Parámetros por query string (GET)
+ * - Parámetros en el body (POST)
+ * - Parámetros en la URL (route params)
+ * - Operaciones CRUD contra MongoDB Atlas
+ * 
+ * @requires express
+ * @requires mongodb
+ * 
+ * Instalación de dependencias:
+ *   npm install express mongodb
+ * 
+ * Para ejecutar:
+ *   node app.js
+ */
+
+const express = require("express");
+const { MongoClient } = require("mongodb");
+
+// ─── Configuración de la aplicación ────────────────────────────────────────
+
+/** @type {import('express').Application} Instancia principal de Express */
+const app = express();
+
+/** Puerto en el que escuchará el servidor */
+const PORT = 3000;
+
+// ─── Variables de conexión a MongoDB ────────────────────────────────────────
+
+/** @type {MongoClient} Cliente de conexión a MongoDB */
+let client;
+
+/** @type {string} Nombre de la base de datos */
+const DB_NAME = "myDatabase";
+
+/** @type {string} Nombre de la colección de recetas */
+const COLLECTION_NAME = "recipes";
+
+/** @type {import('mongodb').Db} Referencia a la base de datos activa */
+let database;
+
+/** @type {import('mongodb').Collection} Referencia a la colección activa */
+let collection;
+
+// ─── Middlewares ─────────────────────────────────────────────────────────────
+
+// Permite recibir y parsear cuerpos JSON en las peticiones
+app.use(express.json());
+
+// Permite recibir datos de formularios HTML (application/x-www-form-urlencoded)
+app.use(express.urlencoded({ extended: true }));
+
+// ─── Funciones de inicialización ─────────────────────────────────────────────
+
+/**
+ * Inicializa las referencias a la base de datos y colección de MongoDB.
+ * Debe llamarse después de que `connectDB()` haya establecido la conexión.
+ * 
+ * @returns {void}
+ */
+function prepareDB() {
+  database = client.db(DB_NAME);
+  collection = database.collection(COLLECTION_NAME);
+  console.log(`Conectado a la BD "${DB_NAME}", colección "${COLLECTION_NAME}"`);
+}
+
+/**
+ * Establece la conexión con el clúster de MongoDB Atlas.
+ * 
+ * ⚠️ IMPORTANTE: La URI de conexión contiene credenciales sensibles.
+ * En producción, mueve esta URI a una variable de entorno:
+ *   process.env.MONGODB_URI
+ * 
+ * @async
+ * @returns {Promise<void>}
+ * @throws {Error} Si la conexión falla (host inaccesible, credenciales incorrectas, etc.)
+ */
+async function connectDB() {
+  const uri = process.env.MONGODB_URI ||
+    "mongodb+srv://migemiki2_db_user:7VuCfYJQ0pKUhRbQ@cluster0.m6yvict.mongodb.net/?appName=Cluster0";
+
+  client = new MongoClient(uri);
+
+  // connect() no abre la conexión de inmediato; la abre cuando se realiza
+  // la primera operación real. Aun así es buena práctica llamarlo al inicio.
+  await client.connect();
+  console.log("Conexión a MongoDB establecida correctamente.");
+}
+
+// ─── Endpoints ───────────────────────────────────────────────────────────────
+
+/**
+ * GET /
+ * Endpoint raíz de comprobación (health-check).
+ * 
+ * @route   GET /
+ * @returns {Object} Mensaje indicando que no hay contenido relevante.
+ * 
+ * @example
+ * // Petición
+ * GET http://localhost:3000/
+ * 
+ * // Respuesta
+ * { "message": "Nothing to send" }
+ */
+app.get("/", async (req, res) => {
+  res.json({ message: "Nothing to send" });
+});
+
+/**
+ * GET /serv001
+ * Recibe parámetros enviados como query string en la URL.
+ * 
+ * @route   GET /serv001
+ * @queryparam {string} id    - Identificador del usuario.
+ * @queryparam {string} token - Token de autenticación.
+ * @queryparam {string} geo   - Coordenadas geográficas (ej: "lat,lon").
+ * @returns {Object} Objeto con los tres parámetros recibidos.
+ * 
+ * @example
+ * // Petición
+ * GET /serv001?id=Nope&token=2345678dhuj43567fgh&geo=123456789,1234567890
+ * 
+ * // Respuesta
+ * {
+ *   "user_id": "Nope",
+ *   "token": "2345678dhuj43567fgh",
+ *   "geo": "123456789,1234567890"
+ * }
+ */
+app.get("/serv001", async (req, res) => {
+  const { id: user_id, token, geo } = req.query;
+
+  res.json({ user_id, token, geo });
+});
+
+/**
+ * GET /serv0010
+ * Variante de /serv001 con nomenclatura alternativa en variables internas.
+ * Recibe los mismos parámetros por query string.
+ * 
+ * @route   GET /serv0010
+ * @queryparam {string} id    - Identificador del usuario.
+ * @queryparam {string} token - Token de autenticación.
+ * @queryparam {string} geo   - Coordenadas geográficas (ej: "lat,lon").
+ * @returns {Object} Objeto con los tres parámetros recibidos.
+ * 
+ * @example
+ * // Petición
+ * GET /serv0010?id=Nope&token=2345678dhuj43567fgh&geo=123456789,1234567890
+ * 
+ * // Respuesta
+ * {
+ *   "user_id": "Nope",
+ *   "token": "2345678dhuj43567fgh",
+ *   "geo": "123456789,1234567890"
+ * }
+ */
+app.get("/serv0010", async (req, res) => {
+  const { id: user_id, token, geo } = req.query;
+
+  res.json({ user_id, token, geo });
+});
+
+/**
+ * POST /serv002
+ * Recibe parámetros enviados en el cuerpo (body) de la petición en formato JSON.
+ * 
+ * @route   POST /serv002
+ * @bodyparam {string} id    - Identificador del usuario.
+ * @bodyparam {string} token - Token de autenticación.
+ * @bodyparam {string} geo   - Coordenadas geográficas (ej: "lat,lon").
+ * @returns {Object} Objeto con los tres parámetros recibidos.
+ * 
+ * @example
+ * // Petición (Content-Type: application/json)
+ * POST /serv002
+ * Body:
+ * {
+ *   "id": "nope",
+ *   "token": "ertydfg456Dfgwerty",
+ *   "geo": "12345678,34567890"
+ * }
+ * 
+ * // Respuesta
+ * {
+ *   "user_id": "nope",
+ *   "token": "ertydfg456Dfgwerty",
+ *   "geo": "12345678,34567890"
+ * }
+ */
+app.post("/serv002", async (req, res) => {
+  const { id: user_id, token, geo } = req.body;
+
+  res.json({ user_id, token, geo });
+});
+
+/**
+ * POST /serv003/:info
+ * Recibe un parámetro directamente como parte del segmento de la URL (route param).
+ * 
+ * @route   POST /serv003/:info
+ * @urlparam {string} info - Valor embebido en la URL.
+ * @returns {Object} Objeto que contiene el valor del parámetro recibido.
+ * 
+ * @example
+ * // Petición
+ * POST /serv003/1234567
+ * 
+ * // Respuesta
+ * { "info": "1234567" }
+ */
+app.post("/serv003/:info", async (req, res) => {
+  const { info } = req.params;
+  res.json({ info });
+});
+
+/**
+ * POST /receipt/insert
+ * Inserta uno o varios documentos (recetas) en la colección de MongoDB.
+ * 
+ * Si el body es un arreglo, se usa `insertMany`; si es un objeto, se usa `insertOne`.
+ * 
+ * @route   POST /receipt/insert
+ * @bodyparam {Object|Object[]} body - Documento o arreglo de documentos a insertar.
+ * @returns {Object} `{ success: true, result }` si la operación es exitosa.
+ * @returns {Object} `{ success: false, error }` con código 500 si ocurre un error.
+ * 
+ * @example
+ * // Insertar un solo documento
+ * POST /receipt/insert
+ * Body: { "name": "Tacos", "ingredients": ["tortilla", "carne", "cilantro"] }
+ * 
+ * // Insertar múltiples documentos
+ * POST /receipt/insert
+ * Body: [
+ *   { "name": "Tacos", "ingredients": ["tortilla", "carne"] },
+ *   { "name": "Pozole", "ingredients": ["maíz", "carne", "chile"] }
+ * ]
+ */
+app.post("/receipt/insert", async (req, res) => {
+  try {
+    const data = req.body;
+
+    // Selecciona el método de inserción según si se recibe un array o un objeto
+    const result = Array.isArray(data)
+      ? await collection.insertMany(data)
+      : await collection.insertOne(data);
+
+    res.json({ success: true, result });
+
+  } catch (err) {
+    // Captura errores de MongoDB o de validación y responde con código 500
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── Inicio del servidor ──────────────────────────────────────────────────────
+
+/**
+ * Arranca el servidor Express en el puerto definido.
+ * Una vez activo, se establece la conexión con MongoDB.
+ */
+app.listen(PORT, async () => {
+  console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  try {
+    await connectDB();
+    prepareDB();
+  } catch (err) {
+    console.error("Error al conectar con MongoDB:", err.message);
+    process.exit(1); // Detiene el proceso si no se puede conectar a la BD
+  }
+});
