@@ -38,7 +38,7 @@ function App() {
             <use href="/icons.svg#documentation-icon"></use>
           </svg>
           <h2>Documentation</h2>
-          <p>Uribe Cortes Luis Miguel</p>
+          <p>Uribe Cortes Luis Miguel Dia 11/05/2026</p>
           <ul>
             <li>
               <a href="https://vite.dev/" target="_blank">
