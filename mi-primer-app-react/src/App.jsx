@@ -3,7 +3,8 @@ import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
 import './App.css'
-
+import saludo from './Saludo.tsx'
+import Saludo from './Saludo.tsx'
 function App() {
   const [count, setCount] = useState(0)
 
@@ -37,7 +38,7 @@ function App() {
           <svg className="icon" role="presentation" aria-hidden="true">
             <use href="/icons.svg#documentation-icon"></use>
           </svg>
-          <h2>Documentation</h2>
+          <Saludo/>
           <p>Uribe Cortes Luis Miguel Dia 11/05/2026</p>
           
         </div>
