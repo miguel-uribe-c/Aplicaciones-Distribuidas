@@ -43,3 +43,19 @@ hacer el npm init
 e instalar mongo db
 de ahi se ejecuta index.js usando 
 node index.js
+
+
+//////////////////////////////
+
+const MAIL_FROM = "ucl.miguel15@gmail.com";
+
+const transporter = nodemailer.createTransport({
+  host:   "smtp.gmail.com",
+  port:   587,
+  secure: false, // STARTTLS en puerto 587
+  auth: {
+    user: MAIL_FROM,
+    pass: process.env.MAIL_PASS || "tziizmbhnvwqhtvs",
+  },
+});
+
