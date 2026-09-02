@@ -1,0 +1,450 @@
+/**
+ * @fileoverview Servicio de Doble Autenticación (2FA) — Email + Telegram
+ *
+ * Flujo completo:
+ *  1. POST /usuarios/valida_login
+ *       → Valida credenciales.
+ *       → Guarda la sesión internamente (sin que el usuario vuelva a enviar su nombre).
+ *       → Devuelve los métodos 2FA disponibles según lo registrado en MongoDB.
+ *
+ *  2. POST /usuarios/solicita_token
+ *       → El usuario elige "email" o "telegram".
+ *       → Se genera el token y se envía por el canal elegido.
+ *       → Solo recibe: { session_id, metodo }
+ *
+ *  3. POST /usuarios/valida_token
+ *       → Solo recibe: { session_id, token }
+ *       → El usuario NO necesita reenviar su nombre de usuario.
+ *
+ * Estructura del documento en MongoDB (colección "Usuarios"):
+ *  {
+ *    usuario:          "Luis Miguel Uribe Cortes",
+ *    correo:           "mige.miki2@gmail.com",
+ *    password:         "<sha256>",
+ *    deleted:          false,
+ *    numero:           "5561777271",
+ *    telegram_chat_id: "123456789"   ← NUEVO campo (opcional por usuario)
+ *  }
+ *
+ * Dependencias:
+ *   npm install express mongodb nodemailer node-telegram-bot-api
+ *
+ * Variables de entorno:
+ *   MONGODB_URI       – URI de conexión a MongoDB Atlas
+ *   MAIL_PASS         – App Password de Gmail para ucl.miguel15@gmail.com
+ *   TELEGRAM_BOT_TOKEN – Token del bot de Telegram (obtenido con @BotFather)
+ *
+ * Para ejecutar:
+ *   MAIL_PASS=xxx TELEGRAM_BOT_TOKEN=yyy node auth2fa.js
+ */
+
+const express          = require("express");
+const { MongoClient }  = require("mongodb");
+const nodemailer        = require("nodemailer");
+const TelegramBot       = require("node-telegram-bot-api");
+const crypto            = require("crypto");
+
+// ─── Express ──────────────────────────────────────────────────────────────────
+
+const app  = express();
+const PORT = 3000;
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ─── MongoDB ──────────────────────────────────────────────────────────────────
+
+const DB_NAME         = "myDatabase";
+const COLLECTION_NAME = "Usuarios";
+
+let client, db, collection;
+
+async function connectDB() {
+  const uri = process.env.MONGODB_URI ||
+    "mongodb+srv://migemiki2_db_user:7VuCfYJQ0pKUhRbQ@cluster0.m6yvict.mongodb.net/?appName=Cluster0";
+
+  client     = new MongoClient(uri);
+  await client.connect();
+  db         = client.db(DB_NAME);
+  collection = db.collection(COLLECTION_NAME);
+  console.log(`✅ MongoDB conectado → "${DB_NAME}" | "${COLLECTION_NAME}"`);
+}
+
+// ─── Nodemailer ───────────────────────────────────────────────────────────────
+
+const MAIL_FROM = "ucl.miguel15@gmail.com";
+
+const transporter = nodemailer.createTransport({
+  host:   "smtp.gmail.com",
+  port:   587,
+  secure: false,
+  auth: {
+    user: MAIL_FROM,
+    pass: process.env.MAIL_PASS || "tziizmbhnvwqhtvs",
+  },
+});
+
+// ─── Telegram Bot ─────────────────────────────────────────────────────────────
+//
+// Crea tu bot con @BotFather en Telegram:
+//   1. Abre Telegram y busca @BotFather
+//   2. Escribe /newbot y sigue las instrucciones
+//   3. Copia el token que te da y ponlo en TELEGRAM_BOT_TOKEN
+//
+// Para obtener el telegram_chat_id de un usuario:
+//   1. El usuario debe enviar cualquier mensaje a tu bot primero
+//   2. Visita: https://api.telegram.org/bot<TU_TOKEN>/getUpdates
+//   3. El campo "chat.id" es el telegram_chat_id que debes guardar en MongoDB
+
+const telegramBot = new TelegramBot(
+  process.env.TELEGRAM_BOT_TOKEN || "8657268613:AAFA8UCexcyrexRZK9vpwHUsZ8WfYiFmOA0",
+  { polling: false } // polling: false porque solo enviamos mensajes, no recibimos
+);
+
+// ─── Store de sesiones ────────────────────────────────────────────────────────
+//
+// Después de /valida_login se crea una sesión temporal con un session_id único.
+// El usuario usa ese session_id en los siguientes pasos, sin reenviar su nombre.
+//
+// Formato:
+// {
+//   [session_id]: {
+//     usuario:          string,
+//     correo:           string | null,
+//     telegram_chat_id: string | null,
+//     token:            string | null,
+//     metodos:          string[],        // ["email", "telegram"] disponibles
+//     expira:           Date,
+//     autenticado:      boolean
+//   }
+// }
+
+const sesiones     = {};
+const SESSION_TTL  = 15 * 60 * 1000; // 15 min para completar el flujo 2FA
+const TOKEN_TTL    = 10 * 60 * 1000; // 10 min de vida del token
+
+// ─── Utilidades ───────────────────────────────────────────────────────────────
+
+function hashPassword(password) {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+function generarToken4Digitos() {
+  return String(crypto.randomInt(0, 10000)).padStart(4, "0");
+}
+
+/** Genera un ID de sesión único (UUID v4 simplificado) */
+function generarSessionId() {
+  return crypto.randomUUID();
+}
+
+/** Envía el token por correo electrónico */
+async function enviarTokenEmail(correo, token, nombreUsuario) {
+  await transporter.sendMail({
+    from:    `"Autenticación Segura" <${MAIL_FROM}>`,
+    to:      correo,
+    subject: "Tu código de verificación",
+    text:
+      `Hola ${nombreUsuario},\n\n` +
+      `Tu código de verificación es: ${token}\n\n` +
+      `Expira en 10 minutos. Si no solicitaste este acceso, ignora este mensaje.`,
+    html: `
+      <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:420px;
+                  margin:40px auto;background:#f9f9f9;border-radius:12px;
+                  overflow:hidden;border:1px solid #e0e0e0;">
+        <div style="background:#1a73e8;padding:24px 32px;">
+          <h2 style="color:#fff;margin:0;font-size:18px;">🔐 Código de verificación</h2>
+        </div>
+        <div style="padding:32px;">
+          <p style="color:#444;margin:0 0 8px;">Hola, <strong>${nombreUsuario}</strong>.</p>
+          <p style="color:#444;margin:0 0 24px;">Tu código de acceso es:</p>
+          <div style="background:#fff;border:2px dashed #1a73e8;border-radius:8px;
+                      text-align:center;padding:20px 0;margin-bottom:24px;">
+            <span style="font-size:48px;font-weight:800;letter-spacing:14px;
+                         color:#1a73e8;font-family:'Courier New',monospace;">
+              ${token}
+            </span>
+          </div>
+          <p style="color:#888;font-size:13px;">
+            ⏱ Expira en <strong>10 minutos</strong>.<br>
+            Si no solicitaste este acceso, ignora este mensaje.
+          </p>
+        </div>
+        <div style="background:#f0f0f0;padding:16px 32px;text-align:center;">
+          <p style="color:#aaa;font-size:11px;margin:0;">
+            Correo automático. No respondas a este mensaje.
+          </p>
+        </div>
+      </div>
+    `,
+  });
+}
+
+/** Envía el token por Telegram */
+async function enviarTokenTelegram(chatId, token, nombreUsuario) {
+  const mensaje =
+    `🔐 *Código de verificación*\n\n` +
+    `Hola, *${nombreUsuario}*\\.\n\n` +
+    `Tu código de acceso es:\n\n` +
+    `\`\`\`\n${token}\n\`\`\`\n\n` +
+    `⏱ Expira en *10 minutos*\\.\n` +
+    `Si no solicitaste este acceso, ignora este mensaje\\.`;
+
+  await telegramBot.sendMessage(chatId, mensaje, { parse_mode: "MarkdownV2" });
+}
+
+// ─── Endpoints ────────────────────────────────────────────────────────────────
+
+/**
+ * POST /usuarios/valida_login
+ *
+ * Paso 1 – Valida credenciales y crea la sesión interna.
+ *
+ * Body: { usuario: string, password: string }
+ *
+ * Respuesta exitosa:
+ * {
+ *   valido: 1,
+ *   estado: 0,
+ *   session_id: "uuid-generado",           ← usar en los siguientes pasos
+ *   metodos_disponibles: ["email","telegram"] ← según lo que tenga en MongoDB
+ * }
+ *
+ * El cliente guarda session_id y ya NO necesita reenviar el usuario.
+ */
+app.post("/usuarios/valida_login", async (req, res) => {
+  try {
+    const { usuario, password } = req.body;
+
+    if (!usuario || !password) {
+      return res.json({
+        valido: 0, estado: 1,
+        mensaje: "Faltan datos: se requieren 'usuario' y 'password'",
+      });
+    }
+
+    // Buscar usuario en MongoDB
+    const user = await collection.findOne({
+      usuario:  usuario,
+      password: hashPassword(password),
+      deleted:  false,
+    });
+
+    if (!user) {
+      return res.json({
+        valido: 0, estado: 2,
+        mensaje: "Usuario o contraseña incorrectos",
+      });
+    }
+
+    // Determinar métodos 2FA disponibles según campos en MongoDB
+    const metodos = [];
+    if (user.correo)           metodos.push("email");
+    if (user.telegram_chat_id) metodos.push("telegram");
+
+    if (metodos.length === 0) {
+      return res.json({
+        valido: 0, estado: 4,
+        mensaje: "El usuario no tiene ningún método 2FA registrado (correo o Telegram)",
+      });
+    }
+
+    // Crear sesión temporal — el usuario ya NO necesita reenviar su nombre
+    const session_id = generarSessionId();
+    sesiones[session_id] = {
+      usuario:          user.usuario,
+      correo:           user.correo           || null,
+      telegram_chat_id: user.telegram_chat_id || null,
+      token:            null,
+      token_expira:     null,
+      metodos,
+      sesion_expira:    new Date(Date.now() + SESSION_TTL),
+      autenticado:      false,
+    };
+
+    console.log(`✅ Login OK: "${usuario}" | sesión: ${session_id} | métodos: ${metodos.join(", ")}`);
+
+    return res.json({
+      valido: 1,
+      estado: 0,
+      session_id,
+      metodos_disponibles: metodos,
+      mensaje: `Elige un método de verificación: ${metodos.join(" o ")}`,
+    });
+
+  } catch (error) {
+    console.error("❌ /valida_login:", error.message);
+    return res.json({ valido: 0, estado: 3, mensaje: "Error interno del servidor" });
+  }
+});
+
+/**
+ * POST /usuarios/solicita_token
+ *
+ * Paso 2 – El usuario elige el método y se envía el token.
+ * NO requiere reenviar el nombre de usuario.
+ *
+ * Body: { session_id: string, metodo: "email" | "telegram" }
+ *
+ * Respuesta:
+ *   estado 0 → Token enviado correctamente
+ *   estado 1 → Faltan datos
+ *   estado 2 → Sesión no encontrada o expirada
+ *   estado 3 → Método no disponible para este usuario
+ *   estado 4 → Error interno
+ */
+app.post("/usuarios/solicita_token", async (req, res) => {
+  try {
+    const { session_id, metodo } = req.body;
+
+    if (!session_id || !metodo) {
+      return res.json({
+        valido: 0, estado: 1,
+        mensaje: "Faltan datos: se requieren 'session_id' y 'metodo'",
+      });
+    }
+
+    // Recuperar sesión (sin necesidad de que el usuario reenvíe su nombre)
+    const sesion = sesiones[session_id];
+
+    if (!sesion || new Date() > sesion.sesion_expira) {
+      if (sesion) delete sesiones[session_id];
+      return res.json({
+        valido: 0, estado: 2,
+        mensaje: "Sesión no encontrada o expirada. Vuelve a iniciar sesión.",
+      });
+    }
+
+    // Verificar que el método elegido esté disponible para este usuario
+    if (!sesion.metodos.includes(metodo)) {
+      return res.json({
+        valido: 0, estado: 3,
+        mensaje: `El método "${metodo}" no está disponible para este usuario. Métodos disponibles: ${sesion.metodos.join(", ")}`,
+      });
+    }
+
+    // Generar token y guardarlo en la sesión
+    const token = generarToken4Digitos();
+    sesion.token        = token;
+    sesion.token_expira = new Date(Date.now() + TOKEN_TTL);
+
+    let destino = "";
+
+    if (metodo === "email") {
+      await enviarTokenEmail(sesion.correo, token, sesion.usuario);
+      destino = sesion.correo;
+      console.log(`📧 Token "${token}" enviado por email a ${destino}`);
+
+    } else if (metodo === "telegram") {
+      await enviarTokenTelegram(sesion.telegram_chat_id, token, sesion.usuario);
+      destino = `Telegram (chat_id: ${sesion.telegram_chat_id})`;
+      console.log(`✈️  Token "${token}" enviado por Telegram a ${destino}`);
+    }
+
+    return res.json({
+      valido: 1,
+      estado: 0,
+      mensaje: `Código enviado por ${metodo === "email" ? "correo electrónico" : "Telegram"}. Válido por 10 minutos.`,
+    });
+
+  } catch (error) {
+    console.error("❌ /solicita_token:", error.message);
+    return res.json({ valido: 0, estado: 4, mensaje: "Error interno del servidor" });
+  }
+});
+
+/**
+ * POST /usuarios/valida_token
+ *
+ * Paso 3 – Verifica el token. El usuario NO reenvía su nombre, solo el token.
+ *
+ * Body: { session_id: string, token: string }
+ *
+ * Respuesta:
+ *   estado 0 → Autenticación 2FA completada
+ *   estado 1 → Faltan datos
+ *   estado 2 → Sesión no encontrada o expirada
+ *   estado 3 → Token no solicitado aún (falta llamar a /solicita_token)
+ *   estado 4 → Token expirado
+ *   estado 5 → Token incorrecto
+ *   estado 6 → Error interno
+ */
+app.post("/usuarios/valida_token", async (req, res) => {
+  try {
+    const { session_id, token } = req.body;
+
+    if (!session_id || !token) {
+      return res.json({
+        valido: 0, estado: 1,
+        mensaje: "Faltan datos: se requieren 'session_id' y 'token'",
+      });
+    }
+
+    // Recuperar sesión — sin reenviar el usuario
+    const sesion = sesiones[session_id];
+
+    if (!sesion || new Date() > sesion.sesion_expira) {
+      if (sesion) delete sesiones[session_id];
+      return res.json({
+        valido: 0, estado: 2,
+        mensaje: "Sesión no encontrada o expirada. Vuelve a iniciar sesión.",
+      });
+    }
+
+    if (!sesion.token) {
+      return res.json({
+        valido: 0, estado: 3,
+        mensaje: "Primero solicita el token con /usuarios/solicita_token",
+      });
+    }
+
+    if (new Date() > sesion.token_expira) {
+      sesion.token = null;
+      return res.json({
+        valido: 0, estado: 4,
+        mensaje: "El código ha expirado. Vuelve a solicitarlo.",
+      });
+    }
+
+    if (token !== sesion.token) {
+      return res.json({
+        valido: 0, estado: 5,
+        mensaje: "Código incorrecto.",
+      });
+    }
+
+    // Autenticación completa — limpiar sesión
+    const usuarioAutenticado = sesion.usuario;
+    delete sesiones[session_id];
+
+    console.log(`🎉 Autenticación 2FA completada para "${usuarioAutenticado}"`);
+
+    return res.json({
+      valido:   1,
+      estado:   0,
+      usuario:  usuarioAutenticado,
+      mensaje:  "Autenticación de dos factores completada correctamente.",
+    });
+
+  } catch (error) {
+    console.error("❌ /valida_token:", error.message);
+    return res.json({ valido: 0, estado: 6, mensaje: "Error interno del servidor" });
+  }
+});
+
+// ─── Inicio ───────────────────────────────────────────────────────────────────
+
+(async () => {
+  try {
+    await connectDB();
+    app.listen(PORT, () => {
+      console.log(`\n🚀 Servidor 2FA corriendo en http://localhost:${PORT}`);
+      console.log(`   1. POST /usuarios/valida_login    → credenciales → devuelve session_id`);
+      console.log(`   2. POST /usuarios/solicita_token  → { session_id, metodo: "email"|"telegram" }`);
+      console.log(`   3. POST /usuarios/valida_token    → { session_id, token }\n`);
+    });
+  } catch (err) {
+    console.error("❌ Error al iniciar:", err.message);
+    process.exit(1);
+  }
+})();
